@@ -1,92 +1,125 @@
-/*
- ДЗ 7 - Создать редактор cookie с возможностью фильтрации
+let myMap, coords, balloon, clusterer;
+if (!localStorage.places) localStorage.places = '';
+ymaps.ready(init);
+const form = [
+    '<form id="feedback_form">',
+    '<div"><h1 class="title">Отзыв:</h1></div>',
+    '<div><input class="field" name="user_name" type="text" placeholder="Укажите ваше имя" size="40"></div>',
+    '<div><input class="field" name="place" type="text" placeholder="Укажите место" size="40"></div>',
+    '<div><textarea class="field" name="feedback" cols="40" rows="3" placeholder="Оставить отзыв"></textarea></div>',
+    '<div><button class=button onclick="send()" type="button">Отправить</button></div>',
+    '</form>'
+];
+const feedbackTemplate = Handlebars.compile([
+    '<div class="review">',
+    '<span><b>{{user_name}} </b></span>',
+    '<span>{{place}} </span>',
+    '<br>',
+    '<span>{{feedback}}</span>',
+    '</div>',
+].join(''));
 
- 7.1: На странице должна быть таблица со списком имеющихся cookie. Таблица должна иметь следующие столбцы:
-   - имя
-   - значение
-   - удалить (при нажатии на кнопку, выбранная cookie удаляется из браузера и таблицы)
+function init() {
+    myMap = new ymaps.Map('map', {
+        center: [59.934816, 30.331428],
+        zoom: 12
+    });
+    balloon = myMap.balloon;
 
- 7.2: На странице должна быть форма для добавления новой cookie. Форма должна содержать следующие поля:
-   - имя
-   - значение
-   - добавить (при нажатии на кнопку, в браузер и таблицу добавляется новая cookie с указанным именем и значением)
+    if (localStorage.places) {
+        const geoObjects = [];
 
- Если добавляется cookie с именем уже существующей cookie, то ее значение в браузере и таблице должно быть обновлено
+        let places = JSON.parse(localStorage.places);
+        for (const key in places) {
+            if (places.hasOwnProperty(key)) {
+                const balloonContent = [];
+                places[key].forEach(place => {
+                    balloonContent.push(feedbackTemplate(place));
+                });
+                balloonContent.push(...form);
+                geoObjects.push(new ymaps.Placemark(
+                    key.split('_'), { balloonContent: balloonContent.join('') }
+                ));
+            }
+        }
 
- 7.3: На странице должно быть текстовое поле для фильтрации cookie
- В таблице должны быть только те cookie, в имени или значении которых, хотя бы частично, есть введенное значение
- Если в поле фильтра пусто, то должны выводиться все доступные cookie
- Если добавляемая cookie не соответствует фильтру, то она должна быть добавлена только в браузер, но не в таблицу
- Если добавляется cookie, с именем уже существующей cookie и ее новое значение не соответствует фильтру,
- то ее значение должно быть обновлено в браузере, а из таблицы cookie должна быть удалена
+        clusterer = new ymaps.Clusterer({
+            clusterDisableClickZoom: true,
+            openBalloonOnClick: false,
+            gridSize: 120
+        });
 
- Запрещено использовать сторонние библиотеки. Разрешено пользоваться только тем, что встроено в браузер
- */
-
-import './cookie.html';
-
-/*
- app - это контейнер для всех ваших домашних заданий
- Если вы создаете новые html-элементы и добавляете их на страницу, то добавляйте их только в этот контейнер
-
- Пример:
-   const newDiv = document.createElement('div');
-   homeworkContainer.appendChild(newDiv);
- */
-
-const homeworkContainer = document.querySelector('#app');
-// текстовое поле для фильтрации cookie
-const filterNameInput = homeworkContainer.querySelector('#filter-name-input');
-// текстовое поле с именем cookie
-const addNameInput = homeworkContainer.querySelector('#add-name-input');
-// текстовое поле со значением cookie
-const addValueInput = homeworkContainer.querySelector('#add-value-input');
-// кнопка "добавить cookie"
-const addButton = homeworkContainer.querySelector('#add-button');
-// таблица со списком cookie
-const listTable = homeworkContainer.querySelector('#list-table tbody');
-
-filterNameInput.addEventListener('input', function () {
-  loadTable();
-});
-
-function isMatching(full, chunk) {
-  return full.toLowerCase().includes(chunk.toLowerCase());
-}
-
-function arrayCookies() {
-  return document.cookie.split('; ').reduce((prev, current) => {
-    const [name, value] = current.split('=');
-    prev[name] = value;
-    return prev;
-  }, {});
-}
-
-function loadTable() {
-  const cookies = arrayCookies();
-  listTable.innerHTML = '';
-  for (const name in cookies) {
-    if (
-      name &&
-      (isMatching(name, filterNameInput.value) ||
-        isMatching(cookies[name], filterNameInput.value))
-    ) {
-      listTable.innerHTML += `<tr><td class="first_td">${name}</td><td>${cookies[name]}</td><td><button class="del-button" 
-          data-name="${name}">Удалить</button></td></tr>`;
+        clusterer.add(geoObjects);
+        clusterer.events.add('click', async function(e) {
+            coords = e.get('coords');
+            const target = e.get('target');
+            await balloon.open(coords, {
+                contentBody: getFeedbacks(target)
+            });
+        });
+        myMap.geoObjects.add(clusterer);
     }
-  }
+
+    myMap.events.add('click', async function(e) {
+        coords = e.get('coords');
+        await balloon.open(coords, {
+            contentBody: form.join('')
+        });
+    });
 }
 
-addButton.addEventListener('click', () => {
-  document.cookie = `${addNameInput.value}=${addValueInput.value}`;
-  loadTable();
-});
 
-listTable.addEventListener('click', (e) => {
-  if (e.target.classList.contains('del-button')) {
-    document.cookie = e.target.dataset.name + '=; expires=Thu, 01-Jan-70 00:00:01 GMT;';
-    loadTable();
-  }
-});
+function send() {
+    const myForm = document.forms.feedback_form;
+    const formData = new FormData(myForm);
+    const user_name = formData.get('user_name');
+    const place = formData.get('place');
+    const feedback = formData.get('feedback');
+    const data = { user_name: user_name, place: place, feedback: feedback };
+    const key = coords[0].toString() + '_' + coords[1].toString();
 
-loadTable();
+    let places;
+    if (localStorage.places) {
+        places = JSON.parse(localStorage.places);
+    } else {
+        places = {};
+    }
+    if (places[key]) {
+        places[key].push(data);
+    } else {
+        places[key] = [];
+        places[key].push(data);
+    }
+    localStorage.places = JSON.stringify(places);
+
+    const placemark = new ymaps.Placemark(coords);
+    clusterer.add(placemark);
+    balloon.close();
+}
+
+function getFeedbacks(target) {
+    const feedbacks = [];
+    let places = JSON.parse(localStorage.places);
+    if (target.hasOwnProperty('_clusterListeners')) {
+        target.getGeoObjects().forEach(obj => {
+            let objCoords = obj.geometry.getCoordinates();
+            objCoords = objCoords.join('_');
+            if (places.hasOwnProperty(objCoords)) {
+                places[objCoords].forEach(fdb => {
+                    feedbacks.push(feedbackTemplate(fdb));
+                });
+            }
+        });
+    } else {
+        let objCoords = target.geometry.getCoordinates();
+        objCoords = objCoords.join('_');
+        if (places.hasOwnProperty(objCoords)) {
+            places[objCoords].forEach(fdb => {
+                feedbacks.push(feedbackTemplate(fdb));
+            });
+        }
+    }
+    feedbacks.push(...form);
+
+    return feedbacks.join('');
+} 
